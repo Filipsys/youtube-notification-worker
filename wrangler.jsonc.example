@@ -1,0 +1,20 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "youtube-notification-worker",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-05-03",
+	"observability": {
+		"enabled": true,
+	},
+	"triggers": {
+		"crons": ["*/3 * * * *"],
+	},
+	"placement": { "mode": "smart" },
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "database-name",
+			"database_id": "database-id",
+		},
+	],
+}
