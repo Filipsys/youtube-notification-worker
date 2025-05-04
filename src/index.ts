@@ -1,28 +1,44 @@
 import { XMLParser } from "fast-xml-parser";
 
 export default {
-	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-		const response = await fetch("https://www.youtube.com/feeds/videos.xml?channel_id=UCoYzQqZNCRqqAomJwJ6yEdg");
-		if (!response.ok) console.error("Error fetching RSS feed.");
+  async scheduled(
+    controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    const response = await fetch(env.YOUTUBE_RSS_URL);
+    if (!response.ok) console.error("Error fetching RSS feed.");
+    const json = new XMLParser().parse(await response.text());
 
-		const json = new XMLParser().parse(await response.text());
+    // TODO: Use Durable Objects instead of a D1 Database.
 
-		const latestVideoId = json.feed.entry[0].id;
-		// console.log(latestVideoId);
+    const latestVideoId = json.feed.entry[0]["yt:videoId"];
+    let query = await env.DB.prepare("SELECT id FROM id_table").run();
 
-		// TODO: Use Durable Objects instead of a D1 Database.
-		// TODO: Check if the initial cached value is empty, if empty, set it to the latest video so it doesn't send the webhook.
+    if (query.results.length === 0) {
+      env.DB.prepare("INSERT INTO id_table (id) VALUES (?)")
+        .bind(latestVideoId)
+        .run();
 
-		const query = await env.DB.exec("SELECT id FROM id_table");
-		console.log(query);
+      query = await env.DB.prepare("SELECT id FROM id_table").run();
+    }
 
-		const latestVideoTitle = json.feed.entry[0]["media:group"]["media:title"];
-		const latestVideoURL = `https://youtu.be/${json.feed.entry[0]["yt:videoId"]}`;
-		const authorDisplayName = json.feed.entry[0].author.name;
-		const webhookMessage = `<@&1368242352074002572> ${authorDisplayName} just posted a [${latestVideoTitle}](${latestVideoURL})!`;
-		const webhookURL =
-			"https://discord.com/api/webhooks/1368301387452256378/xaSrE__COQTyhAkNBX1wDrVMSwWjk_nlmYOgf6li2lXyzVdC6SQDrAdDld2XfNrfpFD0";
+    // Check if any new videos have been posted, if so, end the cron job
+    if (query.results[0].id === latestVideoId) return;
 
-		// fetch("", { body: {} });
-	},
+    const latestVideoTitle = json.feed.entry[0]["media:group"]["media:title"];
+    const latestVideoURL = `https://youtu.be/${json.feed.entry[0]["yt:videoId"]}`;
+    const authorDisplayName = json.feed.entry[0].author.name;
+    const webhookMessage = `<@&1368242352074002572> ${authorDisplayName} just posted a [${latestVideoTitle}](${latestVideoURL})!`;
+
+    fetch(env.DISCORD_WEBHOOK, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        content: webhookMessage,
+      }),
+    });
+  },
 } satisfies ExportedHandler<Env>;
